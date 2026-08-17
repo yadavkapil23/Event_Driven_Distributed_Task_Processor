@@ -1,14 +1,30 @@
 import json
 import os
+import time
 import pika
 
 from .constants import COMMAND_QUEUES, DLX_EXCHANGE, MAX_ATTEMPTS, REPLY_QUEUE
 
 RABBITMQ_URL = os.environ.get('RABBITMQ_URL', 'amqp://guest:guest@localhost:5672')
+CONNECT_RETRIES = 10
+CONNECT_RETRY_DELAY_SECONDS = 2
 
 
 def connect() -> pika.BlockingConnection:
-    return pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+    """
+    Retries on startup because container orchestration (docker-compose
+    `depends_on: condition: service_healthy`) can report RabbitMQ healthy
+    slightly before its AMQP listener is ready to accept connections.
+    """
+    last_error = None
+    for attempt in range(1, CONNECT_RETRIES + 1):
+        try:
+            return pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+        except pika.exceptions.AMQPConnectionError as exc:
+            last_error = exc
+            print(f'RabbitMQ not ready yet (attempt {attempt}/{CONNECT_RETRIES}): {exc}')
+            time.sleep(CONNECT_RETRY_DELAY_SECONDS)
+    raise last_error
 
 
 def setup_topology(channel: pika.channel.Channel) -> None:
