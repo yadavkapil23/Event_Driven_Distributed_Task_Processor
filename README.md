@@ -146,12 +146,22 @@ queues, DLQs, and message rates live.
 
 ## API
 
+Both endpoints require an `X-API-Key` header matching the `API_KEY` env var,
+and are rate-limited to 60 requests/minute per IP.
+
 - `POST /orders/` — `{ customerEmail, productId, warehouseId, quantity, simulateFailure? }`
   `simulateFailure` is one of `"inventory" | "payment" | "shipping"`, for
   demoing the compensation path deterministically. Returns `{ orderId, sagaId }` (202).
 - `GET /orders/<id>/` — current order + saga status + full `saga_events` history.
 - WebSocket at `ws://localhost:3000/ws/orders/` — broadcasts
   `{ sagaId, orderId, step, status }` on every saga transition.
+
+```bash
+curl -X POST http://localhost:3000/orders/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"customerEmail":"alice@example.com","productId":1,"warehouseId":1,"quantity":2}'
+```
 
 ## Failure scenarios the demo exercises
 
@@ -162,10 +172,51 @@ queues, DLQs, and message rates live.
 | Forced out-of-stock | Inventory reservation fails immediately, saga marked `failed` (payment/shipping never invoked) |
 | Forced carrier timeout | Inventory reserved + payment charged, shipping fails, saga compensates: refunds payment, releases inventory |
 
-## What's deliberately out of scope for v1
+## Deploying with Docker
+
+`docker-compose.prod.yml` builds one shared image (from the root `Dockerfile`)
+containing both `orchestrator/` and `workers/`, and runs all 5 app processes
+as separate containers from that image, differing only in their `command:`
+— alongside Postgres, Redis, and RabbitMQ. The existing `docker-compose.yml`
+is unchanged and still useful for local dev (infra only, app runs natively).
+
+```bash
+# 1. Configure secrets — set real values for DJANGO_SECRET_KEY and API_KEY,
+#    not the dev defaults in .env.example
+cp .env.example .env
+
+# 2. Build and start everything
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 3. Migrate and seed (one-off, against the containerized Postgres)
+docker compose -f docker-compose.prod.yml exec web python manage.py migrate
+docker compose -f docker-compose.prod.yml exec web python /app/scripts/seed.py
+
+# 4. Hit the API
+curl -X POST http://localhost:3000/orders/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"customerEmail":"alice@example.com","productId":1,"warehouseId":1,"quantity":2}'
+```
+
+**Before exposing this beyond localhost:**
+- Set `DJANGO_DEBUG=False` and real (long, random) values for `DJANGO_SECRET_KEY`
+  and `API_KEY` — with `DEBUG=False`, Django refuses to start if either is unset.
+- Set `DJANGO_ALLOWED_HOSTS` to your actual domain(s).
+- Put this behind a reverse proxy (nginx, Caddy, or your cloud provider's load
+  balancer) for TLS termination — this project does not terminate HTTPS itself.
+- Swap the local Postgres/Redis/RabbitMQ containers for managed equivalents
+  (RDS, ElastiCache, CloudAMQP, etc.) if running for real rather than as a demo.
+
+## What's deliberately out of scope
 
 - React/WebSocket dashboard UI — the WebSocket feed exists and is ready to
   consume, but no frontend is built yet.
 - Kafka — RabbitMQ was chosen for simpler native DLQ/retry primitives.
-- Auth, rate limiting, cloud deployment — this is the core saga/reliability
-  story; productionization is a natural "phase 2."
+- Real payment/carrier integrations — `payment_worker.py` and
+  `shipping_worker.py` simulate their steps rather than calling a real
+  gateway/carrier API; the saga/idempotency/DLQ mechanics around them are real.
+- Managed cloud infra, health-check-based auto-restart, log aggregation,
+  and DLQ-depth alerting — natural next steps for a real production deployment,
+  not required to demonstrate the distributed-systems patterns this project
+  is about.
