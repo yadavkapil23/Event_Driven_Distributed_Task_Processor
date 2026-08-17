@@ -4,6 +4,7 @@ import time
 import requests
 
 BASE_URL = os.environ.get('ORCHESTRATOR_URL', 'http://localhost:3000')
+HEADERS = {'X-API-Key': os.environ.get('API_KEY', 'dev-local-api-key-change-me')}
 
 ORDERS = [
     {
@@ -36,7 +37,7 @@ ORDERS = [
 
 def submit_order(demo):
     print(f"\n--- {demo['label']} ---")
-    res = requests.post(f'{BASE_URL}/orders/', json=demo['body'])
+    res = requests.post(f'{BASE_URL}/orders/', json=demo['body'], headers=HEADERS)
     data = res.json()
     print('Response:', data)
     return data
@@ -45,7 +46,7 @@ def submit_order(demo):
 def poll_status(order_id, attempts=10):
     for i in range(attempts):
         time.sleep(1)
-        res = requests.get(f'{BASE_URL}/orders/{order_id}/')
+        res = requests.get(f'{BASE_URL}/orders/{order_id}/', headers=HEADERS)
         data = res.json()
         saga_status = (data.get('saga') or {}).get('status')
         print(f'  poll {i + 1}: saga status = {saga_status}')
