@@ -1,13 +1,15 @@
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status as http_status
 
 from . import mq, saga_runner
 from .models import Order, Product, SagaState
+from .permissions import HasAPIKey
 from .serializers import CreateOrderSerializer, OrderSerializer, SagaStateSerializer, SagaEventSerializer
 
 
 @api_view(['POST'])
+@permission_classes([HasAPIKey])
 def create_order(request):
     serializer = CreateOrderSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
