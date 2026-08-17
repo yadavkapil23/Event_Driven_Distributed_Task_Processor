@@ -5,9 +5,18 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / '.env')
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
-ALLOWED_HOSTS = ['*']
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
+
+if DEBUG:
+    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
+else:
+    SECRET_KEY = os.environ['DJANGO_SECRET_KEY']  # required outside DEBUG — fail loudly if unset
+
+ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+
+# Shared secret for the X-API-Key header (see orders/permissions.py). Required
+# outside DEBUG so a misconfigured deploy fails to start instead of running open.
+API_KEY = os.environ.get('API_KEY') if DEBUG else os.environ['API_KEY']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -92,4 +101,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+    'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.AnonRateThrottle'],
+    'DEFAULT_THROTTLE_RATES': {'anon': '60/min'},
 }
